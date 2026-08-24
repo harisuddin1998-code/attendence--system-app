@@ -330,7 +330,9 @@ def mark_attendance():
             ).execute()
 
             if student.get("fcm_token"):
-                send_attendance_notification(student["fcm_token"], student["full_name"], class_name, marked_at_iso)
+                send_attendance_notification(
+                    student["fcm_token"], student["full_name"], class_name, marked_at_iso, face_crop_url
+                )
 
             recognized.append(
                 {

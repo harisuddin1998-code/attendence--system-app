@@ -23,7 +23,13 @@ def _get_app():
     return _firebase_app
 
 
-def send_attendance_notification(fcm_token: str, student_name: str, class_name: str, marked_at: str) -> bool:
+def send_attendance_notification(
+    fcm_token: str,
+    student_name: str,
+    class_name: str,
+    marked_at: str,
+    face_crop_url: str | None = None,
+) -> bool:
     if not fcm_token:
         return False
 
@@ -32,11 +38,18 @@ def send_attendance_notification(fcm_token: str, student_name: str, class_name: 
         notification=messaging.Notification(
             title="Attendance Marked",
             body=f"You were marked present in {class_name} at {marked_at}.",
+            # Shows the cropped face the system matched as the notification's big picture (Android +
+            # Chrome web push both render `image`; falls back to a plain text notification if absent).
+            image=face_crop_url or None,
+        ),
+        android=messaging.AndroidConfig(
+            notification=messaging.AndroidNotification(image=face_crop_url or None),
         ),
         data={
             "type": "attendance_marked",
             "class_name": class_name,
             "marked_at": marked_at,
+            "face_crop_url": face_crop_url or "",
         },
         token=fcm_token,
     )

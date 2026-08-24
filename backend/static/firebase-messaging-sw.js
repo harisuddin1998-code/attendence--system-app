@@ -14,9 +14,12 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
-  const { title, body } = payload.notification || {};
+  const { title, body, image } = payload.notification || {};
+  const faceCropUrl = image || payload.data?.face_crop_url || undefined;
+
   self.registration.showNotification(title || "Attendance", {
     body: body || "You have a new attendance update.",
-    icon: "/static/icon.png",
+    icon: faceCropUrl || "/static/icon.png",
+    image: faceCropUrl,
   });
 });

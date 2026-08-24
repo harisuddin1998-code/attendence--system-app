@@ -33,6 +33,15 @@ async function registerForPush(studentId) {
         body: JSON.stringify({ token }),
       });
       notifStatus.textContent = "Push notifications enabled.";
+
+      // While this dashboard tab is open and focused, FCM delivers messages here instead of to the
+      // service worker, so show the same "marked present" alert (with the cropped face) ourselves.
+      messaging.onMessage((payload) => {
+        const { title, body, image } = payload.notification || {};
+        const faceCropUrl = image || payload.data?.face_crop_url;
+        new Notification(title || "Attendance", { body, icon: faceCropUrl, image: faceCropUrl });
+        loadHistory(studentId);
+      });
     }
   } catch (err) {
     notifStatus.textContent = "Could not enable push notifications.";
