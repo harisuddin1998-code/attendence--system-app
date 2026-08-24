@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Download Apps - Attendance System{% endblock %}
+{% block content %}
+  <section class="card">
+    <h2>Download the apps</h2>
+    <p class="hint">Android APKs. Your phone will ask you to allow "install from unknown sources" the first time.</p>
+
+    <div class="download-row">
+      <div>
+        <h3>Teacher app</h3>
+        <p class="hint">Capture classroom photos and mark attendance.</p>
+      </div>
+      {% if apks.teacher %}
+        <a class="button" href="{{ url_for('static', filename='downloads/teacher_app.apk') }}">Download</a>
+      {% else %}
+        <span class="hint">Not uploaded yet</span>
+      {% endif %}
+    </div>
+
+    <div class="download-row">
+      <div>
+        <h3>Student app</h3>
+        <p class="hint">Register your face once and view your attendance history.</p>
+      </div>
+      {% if apks.student %}
+        <a class="button" href="{{ url_for('static', filename='downloads/student_app.apk') }}">Download</a>
+      {% else %}
+        <span class="hint">Not uploaded yet</span>
+      {% endif %}
+    </div>
+
+    <p class="hint">Prefer not to install an app? Students can also register and check attendance from
+      <a href="{{ url_for('register_page') }}">this website</a> on any browser.</p>
+  </section>
+{% endblock %}

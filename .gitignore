@@ -1,0 +1,32 @@
+backend/.env
+backend/firebase-service-account.json
+backend/__pycache__/
+backend/venv/
+backend/*.pyc
+backend/static/downloads/*.apk
+
+# --- Flutter/Dart (applies under teacher_app/ and student_app/) ---
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/.pub/
+**/*.iml
+**/*.g.dart
+
+# Android
+**/android/.gradle/
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+**/android/key.properties
+**/*.jks
+
+# iOS
+**/ios/Flutter/.last_build_id
+**/ios/Pods/
+**/ios/.symlinks/

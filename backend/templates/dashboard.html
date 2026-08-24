@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}My Attendance - Attendance System{% endblock %}
+{% block content %}
+  <section class="card">
+    <h2>My attendance</h2>
+    <form id="lookup-form">
+      <label>Roll / ID number
+        <input type="text" name="roll_number" required />
+      </label>
+      <button type="submit" class="button">View</button>
+    </form>
+
+    <div id="profile" class="hidden">
+      <div class="profile-header">
+        <img id="profile-photo" alt="Your registered photo" />
+        <div>
+          <h3 id="profile-name"></h3>
+          <p id="profile-class"></p>
+        </div>
+      </div>
+      <p id="notif-status" class="hint"></p>
+      <h4>History</h4>
+      <ul id="history-list"></ul>
+    </div>
+
+    <p id="status-msg" class="status"></p>
+  </section>
+{% endblock %}
+{% block scripts %}
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+  <script src="{{ url_for('static', filename='js/firebase-config.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}
