@@ -104,11 +104,18 @@ def register_student():
             pose_photos.append((pose_label, file.read()))
 
     encoded_poses = []
+    skipped_poses = []
     for pose_label, photo_bytes in pose_photos:
         try:
             encoding = encode_single_face(photo_bytes)
         except (NoFaceFoundError, MultipleFacesFoundError) as exc:
-            return error_response(f"{pose_label} photo: {exc}")
+            if pose_label == "front":
+                return error_response(f"{pose_label} photo: {exc}")
+            # Profile angles (left/right/extra) are optional accuracy boosters - dlib's detector often
+            # can't find a face in a strongly turned profile shot, so skip rather than block the whole
+            # registration over a photo that was never required.
+            skipped_poses.append(pose_label)
+            continue
         encoded_poses.append((pose_label, photo_bytes, encoding))
 
     supabase = get_supabase()
@@ -146,6 +153,7 @@ def register_student():
             "class_name": student["class_name"],
             "photo_url": student["photo_url"],
             "poses_registered": len(encoded_poses),
+            "poses_skipped": skipped_poses,
         }
     ), 201
 
