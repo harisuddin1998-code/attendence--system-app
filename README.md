@@ -79,9 +79,41 @@ under `/api/...` and is what both Flutter apps talk to.
 > `face_recognition` locally and test that part directly on PythonAnywhere (Linux), where it installs
 > far more reliably.
 
-## 4. Deploy backend to PythonAnywhere
+## 4. Deploy backend to Render (recommended — free, no disk-quota issues)
 
-1. Upload the `backend/` folder (Files tab, or `git clone https://github.com/harisuddin1998-code/attendence--system-app.git` then use the `backend/` subfolder).
+PythonAnywhere's free tier caps the **whole account** (code + virtualenv + pip downloads) at 512MB,
+which `dlib`'s build dependencies alone can blow past. Render's free web-service tier gives the build
+step much more room, needs no credit card, and deploys straight from this repo's [`render.yaml`](render.yaml).
+
+1. Push any local changes to GitHub (already done if you're following along in order).
+2. Go to render.com → sign up/log in (GitHub login is easiest) → **New → Blueprint** → pick the
+   `attendence--system-app` repo → Render reads `render.yaml` automatically and shows one service,
+   **attendance-backend**, on the **free** plan, rooted at `backend/`.
+3. Before clicking deploy, fill in the environment variables it asks for (marked `sync: false` in
+   `render.yaml` so Render prompts for them instead of storing them in the repo):
+   - `SUPABASE_URL` → `https://tjmmdcmjmjfxhktpixxp.supabase.co`
+   - `SUPABASE_SERVICE_KEY` → the service_role key from Supabase → Project Settings → API
+   - `FIREBASE_CREDENTIALS_JSON` → open `backend/firebase-service-account.json` and paste its **entire
+     contents** as the value (this is how secrets that need to be a *file* on PythonAnywhere become a
+     plain env var here — `firebase_service.py` checks for this first, see `config.py`)
+4. Click **Apply/Deploy**. First build compiles `dlib` (~5-10 min) — watch the **Logs** tab.
+5. Once live, your site is at `https://attendance-backend-xxxx.onrender.com` (Render assigns the `xxxx`
+   suffix; the exact URL is shown on the service's dashboard page).
+6. Free tier sleeps after ~15 min of no traffic and takes ~20-30s to wake on the next request — fine
+   for a small class, not for something needing instant response at all hours.
+7. `teacher_app.apk` and `student_app.apk` are committed straight into `backend/static/downloads/` in
+   this repo (both under GitHub's 100MB file limit) — Render's free tier has no persistent disk or
+   dashboard file upload, so committing them is what makes `/downloads` work there at all. If you
+   rebuild an APK later, just replace the file and push; Render redeploys automatically on every push
+   to `main`.
+
+### Alternative: PythonAnywhere
+
+Still usable if you upgrade off the free plan (the $5/month "Hacker" plan's ~1GB quota has enough room
+for `dlib`) — file uploads (APKs, the Firebase JSON) are also easier there since it has a real file
+browser and persistent disk, unlike Render's free tier.
+
+1. Upload the `backend/` folder (Files tab, or `git clone https://github.com/harisuddin1998-code/attendence--system-app.git` then use the `backend/` subfolder — delete `teacher_app/`/`student_app/` afterward, the server doesn't need them and they eat into the disk quota).
 2. **Web tab → Add a new web app → Manual configuration → Python 3.11**.
 3. Set the **Virtualenv** path and run `pip install -r requirements.txt` inside it from a Bash console.
 4. Edit the generated **WSGI file** to import your app:
@@ -94,10 +126,9 @@ under `/api/...` and is what both Flutter apps talk to.
    ```
 5. In the **Web tab → Environment variables**, set `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (or keep
    using `.env` — `python-dotenv` will pick it up from the backend folder).
-6. Upload `firebase-service-account.json` into `backend/` on PythonAnywhere too.
-7. Once you've built the APKs (see below), upload them as `backend/static/downloads/teacher_app.apk`
-   and `backend/static/downloads/student_app.apk` — the `/downloads` page picks them up automatically.
-8. Reload the web app. Your site is now live at `https://yourusername.pythonanywhere.com`.
+6. Upload `firebase-service-account.json` into `backend/` on PythonAnywhere too (the APKs are already
+   there from the `git clone` since they're committed in the repo).
+7. Reload the web app. Your site is now live at `https://yourusername.pythonanywhere.com`.
 
 ## 5. Teacher Flutter app (`teacher_app/`)
 

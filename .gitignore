@@ -3,7 +3,8 @@ backend/firebase-service-account.json
 backend/__pycache__/
 backend/venv/
 backend/*.pyc
-backend/static/downloads/*.apk
+# teacher_app.apk / student_app.apk ARE committed on purpose - Render's free tier has no persistent
+# disk or dashboard file upload, so the repo is the only place they can live for /downloads to serve.
 
 # --- Flutter/Dart (applies under teacher_app/ and student_app/) ---
 **/build/

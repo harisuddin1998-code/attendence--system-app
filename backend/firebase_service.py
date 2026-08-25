@@ -3,12 +3,13 @@
 Works for both the Flutter app and web-push (student registration web app), since FCM
 issues a device/browser token in both cases that we store in students.fcm_token.
 """
+import json
 import logging
 
 import firebase_admin
 from firebase_admin import credentials, messaging
 
-from config import FIREBASE_CREDENTIALS_PATH
+from config import FIREBASE_CREDENTIALS_JSON, FIREBASE_CREDENTIALS_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,10 @@ _firebase_app = None
 def _get_app():
     global _firebase_app
     if _firebase_app is None:
-        cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+        if FIREBASE_CREDENTIALS_JSON:
+            cred = credentials.Certificate(json.loads(FIREBASE_CREDENTIALS_JSON))
+        else:
+            cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
         _firebase_app = firebase_admin.initialize_app(cred)
     return _firebase_app
 
