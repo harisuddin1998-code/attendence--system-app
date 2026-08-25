@@ -71,6 +71,13 @@ under `/api/...` and is what both Flutter apps talk to.
 >   build), or swapping `face_service.py` to call a hosted face-recognition API instead of doing it
 >   in-process (the rest of the app doesn't need to change — only `encode_single_face` /
 >   `detect_faces_in_group_photo` would call out to that API instead of `face_recognition`).
+>
+> **Testing locally on Windows:** the rest of the backend (Supabase, Firebase, all routes) works with
+> `pip install -r requirements.txt` minus `face_recognition`, but `dlib` itself needs to compile from
+> source on Windows unless a prebuilt wheel matches your Python version — that requires Visual Studio
+> Build Tools ("Desktop development with C++" workload, several GB). Easiest is to skip installing
+> `face_recognition` locally and test that part directly on PythonAnywhere (Linux), where it installs
+> far more reliably.
 
 ## 4. Deploy backend to PythonAnywhere
 
