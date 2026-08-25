@@ -1,7 +1,7 @@
 name: attendance_student_app
 description: Student app for face registration and viewing attendance history.
 publish_to: "none"
-version: 1.0.2+3
+version: 1.1.0+4
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -18,8 +18,17 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
   assets:
     - assets/certs/render_trust_chain.pem
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/icon_full.png"
+  adaptive_icon_background: "assets/icon/icon_adaptive_bg.png"
+  adaptive_icon_foreground: "assets/icon/icon_adaptive_fg.png"
+  min_sdk_android: 21
