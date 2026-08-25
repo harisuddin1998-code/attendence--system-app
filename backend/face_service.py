@@ -8,9 +8,15 @@ from dataclasses import dataclass
 
 import face_recognition
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from config import FACE_MATCH_THRESHOLD
+
+# HOG face detection time scales with image area, and phone cameras routinely produce 3000-4000px
+# wide photos - on Render's free-tier CPU that's slow enough to blow past the request timeout and
+# return a blank response. Capping the longest side keeps detection fast without hurting accuracy at
+# normal classroom-photo distances.
+MAX_IMAGE_DIMENSION = 1600
 
 
 class NoFaceFoundError(Exception):
@@ -30,7 +36,12 @@ class DetectedFace:
 
 def _load_rgb_image(image_bytes: bytes) -> np.ndarray:
     image = Image.open(io.BytesIO(image_bytes))
+    image = ImageOps.exif_transpose(image)  # phone photos carry rotation as EXIF, not pixel data
     image = image.convert("RGB")
+
+    if max(image.size) > MAX_IMAGE_DIMENSION:
+        image.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.LANCZOS)
+
     return np.array(image)
 
 
