@@ -3,20 +3,26 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{% block title %}Attendance System{% endblock %}</title>
+  <title>{% block title %}Monitor — AI Attendance{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}">Attendance System</a>
+    <a class="brand" href="{{ url_for('index') }}">
+      <span class="logo-mark">M</span>
+      Monitor
+    </a>
     <nav>
       <a href="{{ url_for('dashboard_page') }}">My Attendance</a>
       <a href="{{ url_for('downloads_page') }}">Download Apps</a>
     </nav>
   </header>
-  <main class="container">
+  <main class="{% block main_class %}container{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+  <footer class="site-footer">
+    &copy; 2026 Monitor — AI-powered attendance for schools &amp; universities. Built at Iqra University, North Campus.
+  </footer>
   {% block scripts %}{% endblock %}
 </body>
 </html>

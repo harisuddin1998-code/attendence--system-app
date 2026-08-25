@@ -1,13 +1,134 @@
 {% extends "base.html" %}
-{% block title %}Attendance System{% endblock %}
+{% block title %}Monitor — AI Face-Recognition Attendance{% endblock %}
+{% block main_class %}{% endblock %}
 {% block content %}
-  <section class="hero">
-    <h1>Face Recognition Attendance System</h1>
-    <p>Your teacher marks class attendance from two classroom photos, and you get notified the moment
-       you're marked present. Register your face once from the Student app (see Download Apps).</p>
+
+  <section class="hero-band">
+    <span class="eyebrow">AI Attendance, Reimagined</span>
+    <h1>Attendance that takes<br />two photos, not ten minutes.</h1>
+    <p class="lead">
+      Monitor turns a teacher's phone into a face-recognition attendance system. Capture the room,
+      let AI recognize every registered student, and mark a full class present in seconds — no roll
+      call, no CCTV, no extra hardware.
+    </p>
     <div class="actions">
-      <a class="button" href="{{ url_for('dashboard_page') }}">View my attendance</a>
-      <a class="button secondary" href="{{ url_for('downloads_page') }}">Download Apps</a>
+      <a class="button" href="{{ url_for('downloads_page') }}">Download the apps</a>
+      <a class="button secondary" href="{{ url_for('dashboard_page') }}">View my attendance</a>
     </div>
   </section>
+
+  <section class="section">
+    <div class="section-heading">
+      <span class="eyebrow-dark">How it works</span>
+      <h2>From classroom to confirmed, in four steps</h2>
+      <p>No live camera feeds, no server-side video infrastructure to install or maintain — just two
+        phone photos and an AI model that does the rest.</p>
+    </div>
+    <div class="steps-grid">
+      <div class="step-card">
+        <div class="step-number">1</div>
+        <h3>Teacher opens the app</h3>
+        <p>Logs into the Monitor teacher app and picks the class or course about to be marked present.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-number">2</div>
+        <h3>Capture the room</h3>
+        <p>Two quick photos — left half, right half — cover every student in the class, however the
+          room is arranged.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-number">3</div>
+        <h3>AI recognizes every face</h3>
+        <p>Each face is matched in real time against the student's one-time face registration —
+          no manual roll call, no scanning ID cards.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-number">4</div>
+        <h3>Students are notified instantly</h3>
+        <p>The moment a face is confirmed, that student gets a push notification with the time, class,
+          and their own matched photo.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section alt">
+    <div class="section-heading">
+      <span class="eyebrow-dark">Why institutions choose Monitor</span>
+      <h2>Built to save time — and to work everywhere</h2>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="icon">⚡</div>
+        <h3>Minutes become seconds</h3>
+        <p>A 50-student roll call that used to eat 5-10 minutes of class time is done before the
+          teacher sits down.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📷</div>
+        <h3>No RTSP, no CCTV, no servers</h3>
+        <p>Monitor doesn't need IP cameras, video ingestion pipelines, or on-site hardware. It runs
+          entirely from two photos taken on a phone.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🎯</div>
+        <h3>Nothing gets missed</h3>
+        <p>Every detected face is shown — matched students are named automatically, and any face the
+          AI isn't confident about is flagged "Unknown" for the teacher to confirm with one tap.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔔</div>
+        <h3>Instant confirmation</h3>
+        <p>Students don't wonder if they were marked present — they get a notification the moment it
+          happens, with the class, time, and their matched photo.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📱</div>
+        <h3>Works on any Android phone</h3>
+        <p>No specialized scanners or biometric hardware. If a teacher has a phone, they can take
+          attendance.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🎨</div>
+        <h3>Customized to your institution</h3>
+        <p>Branding, class/department structure, and workflow are tailored to how your school or
+          university actually operates — not a rigid one-size-fits-all tool.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="split">
+      <div>
+        <span class="eyebrow-dark" style="display:block;margin-bottom:10px;">Customization</span>
+        <h2>We adapt Monitor's UI and workflow to your campus</h2>
+        <ul>
+          <li><strong>Your branding</strong> — logo, colors, and app name matched to your institution.</li>
+          <li><strong>Your structure</strong> — departments, sections, and multiple campuses set up the
+            way your admin office already thinks about classes.</li>
+          <li><strong>Your rollout pace</strong> — start with a single department, expand campus-wide
+            once teachers are comfortable.</li>
+          <li><strong>Your reporting needs</strong> — attendance history, exports, and notifications
+            configured around what your faculty actually asks for.</li>
+        </ul>
+      </div>
+      <div class="about-card">
+        <span class="badge">Built at Iqra University, North Campus</span>
+        <h3>A student-built system, made for real institutions</h3>
+        <p>
+          Monitor was designed and built by a computer science student at Iqra University, North
+          Campus, to bring practical, affordable AI attendance to schools, colleges and universities
+          across Pakistan — without the cost or complexity of CCTV-based systems. It's offered as a
+          hosted subscription per institution, so your campus gets a modern attendance system without
+          buying or maintaining any of the AI infrastructure yourself.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-band">
+    <h2>Ready to bring Monitor to your campus?</h2>
+    <p>Download the apps, take a look, and see how a real class gets marked present.</p>
+    <a class="button" href="{{ url_for('downloads_page') }}">Download the apps</a>
+  </section>
+
 {% endblock %}
