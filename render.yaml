@@ -5,8 +5,15 @@ services:
     plan: free
     region: singapore
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    # dlib has no official manylinux wheel for every Python version, so first try a wheel-only
+    # install (fast, no memory risk); if none matches, fall back to compiling with a single build
+    # job - Render's free tier only has 512MB RAM and dlib's default multi-job parallel compile
+    # OOMs on it.
+    buildCommand: >-
+      pip install --only-binary=:all: dlib ||
+      CMAKE_BUILD_PARALLEL_LEVEL=1 MAKEFLAGS=-j1 pip install --no-cache-dir dlib &&
+      pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120
     envVars:
       - key: SUPABASE_URL
         sync: false
