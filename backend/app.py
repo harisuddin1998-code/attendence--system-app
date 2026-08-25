@@ -319,8 +319,7 @@ def mark_attendance():
     right_url = upload_image(config.BUCKET_ATTENDANCE_IMAGES, right_bytes)
 
     matched_student_ids = set()
-    recognized = []
-    closest_misses = []
+    detected_faces = []
     total_faces_detected = 0
     marked_at_iso = datetime.now(timezone.utc).isoformat()
 
@@ -329,53 +328,52 @@ def mark_attendance():
         total_faces_detected += len(faces)
 
         for face in faces:
-            student, distance = closest_student(face.encoding, known_students)
+            candidate, distance = closest_student(face.encoding, known_students)
+            is_match = candidate is not None and distance <= config.FACE_MATCH_THRESHOLD
+            # A student appearing in both photos (or twice in one) only gets marked present once - the
+            # unique(session_id, student_id) constraint enforces that at the DB level too.
+            already_marked = is_match and candidate["id"] in matched_student_ids
 
-            if student is None:
-                continue
-            if distance > config.FACE_MATCH_THRESHOLD:
-                # Not confident enough to mark present, but this is exactly the number to look at when
-                # tuning FACE_MATCH_THRESHOLD - the closer it is to the threshold, the more likely this
-                # really is the same person just photographed at a worse angle/distance/lighting.
-                closest_misses.append(
+            face_crop_url = upload_image(config.BUCKET_FACE_CROPS, face.crop_jpeg_bytes)
+            confidence = round(1 - distance, 4) if is_match else None
+
+            record_result = (
+                supabase.table("attendance_records")
+                .insert(
                     {
-                        "full_name": student["full_name"],
-                        "roll_number": student["roll_number"],
-                        "distance": round(distance, 4),
+                        "session_id": session_id,
+                        "student_id": candidate["id"] if (is_match and not already_marked) else None,
                         "source_image": source_label,
+                        "face_crop_url": face_crop_url,
+                        "confidence": confidence,
                     }
                 )
-                continue
-            if student["id"] in matched_student_ids:
-                continue
+                .execute()
+            )
+            record_id = record_result.data[0]["id"]
 
-            matched_student_ids.add(student["id"])
-            confidence = round(1 - distance, 4)
-            face_crop_url = upload_image(config.BUCKET_FACE_CROPS, face.crop_jpeg_bytes)
+            if is_match and not already_marked:
+                matched_student_ids.add(candidate["id"])
+                if candidate.get("fcm_token"):
+                    send_attendance_notification(
+                        candidate["fcm_token"], candidate["full_name"], class_name, marked_at_iso, face_crop_url
+                    )
 
-            supabase.table("attendance_records").insert(
+            # "Unknown" faces still carry the nearest candidate's name/distance as a hint - lets the
+            # teacher confirm a near-miss with one tap instead of typing the roll number from scratch.
+            has_hint = candidate is not None and not is_match
+            detected_faces.append(
                 {
-                    "session_id": session_id,
-                    "student_id": student["id"],
-                    "source_image": source_label,
-                    "face_crop_url": face_crop_url,
-                    "confidence": confidence,
-                }
-            ).execute()
-
-            if student.get("fcm_token"):
-                send_attendance_notification(
-                    student["fcm_token"], student["full_name"], class_name, marked_at_iso, face_crop_url
-                )
-
-            recognized.append(
-                {
-                    "student_id": student["id"],
-                    "full_name": student["full_name"],
-                    "roll_number": student["roll_number"],
-                    "confidence": confidence,
+                    "record_id": record_id,
                     "face_crop_url": face_crop_url,
                     "source_image": source_label,
+                    "student_id": candidate["id"] if is_match else None,
+                    "full_name": candidate["full_name"] if is_match else None,
+                    "roll_number": candidate["roll_number"] if is_match else None,
+                    "confidence": confidence,
+                    "closest_guess_name": candidate["full_name"] if has_hint else None,
+                    "closest_guess_roll_number": candidate["roll_number"] if has_hint else None,
+                    "closest_guess_distance": round(distance, 4) if has_hint else None,
                 }
             )
 
@@ -397,11 +395,85 @@ def mark_attendance():
             "total_faces_detected": total_faces_detected,
             "total_students_recognized": len(matched_student_ids),
             "unrecognized_faces_count": total_faces_detected - len(matched_student_ids),
-            "recognized": recognized,
-            "closest_misses": closest_misses,
+            "detected_faces": detected_faces,
             "match_threshold": config.FACE_MATCH_THRESHOLD,
         }
     ), 201
+
+
+@app.post("/api/attendance/records/<record_id>/identify")
+def identify_attendance_record(record_id):
+    """Lets a teacher assign a name to a face the automatic matching left as "unknown"."""
+    body = request.get_json(silent=True) or {}
+    roll_number = body.get("roll_number", "").strip()
+    if not roll_number:
+        return error_response("roll_number is required.")
+
+    supabase = get_supabase()
+
+    record_result = (
+        supabase.table("attendance_records")
+        .select("*, attendance_sessions(class_name)")
+        .eq("id", record_id)
+        .execute()
+    )
+    if not record_result.data:
+        return error_response("Attendance record not found.", status=404)
+    record = record_result.data[0]
+
+    if record["student_id"]:
+        return error_response("This face is already identified.", status=409)
+
+    student_result = (
+        supabase.table("students")
+        .select("id, full_name, roll_number, fcm_token")
+        .eq("roll_number", roll_number)
+        .execute()
+    )
+    if not student_result.data:
+        return error_response(f"No student found with roll number '{roll_number}'.")
+    student = student_result.data[0]
+
+    already_marked = (
+        supabase.table("attendance_records")
+        .select("id")
+        .eq("session_id", record["session_id"])
+        .eq("student_id", student["id"])
+        .execute()
+    )
+    if already_marked.data:
+        return error_response(f"{student['full_name']} is already marked present in this session.", status=409)
+
+    supabase.table("attendance_records").update(
+        {"student_id": student["id"], "manually_confirmed": True}
+    ).eq("id", record_id).execute()
+
+    matched_count = (
+        supabase.table("attendance_records")
+        .select("student_id")
+        .eq("session_id", record["session_id"])
+        .execute()
+    )
+    unique_matched = len({r["student_id"] for r in matched_count.data if r["student_id"]})
+    supabase.table("attendance_sessions").update({"total_students_recognized": unique_matched}).eq(
+        "id", record["session_id"]
+    ).execute()
+
+    if student.get("fcm_token"):
+        class_name = record["attendance_sessions"]["class_name"]
+        marked_at_iso = record.get("marked_at") or datetime.now(timezone.utc).isoformat()
+        send_attendance_notification(
+            student["fcm_token"], student["full_name"], class_name, marked_at_iso, record.get("face_crop_url")
+        )
+
+    return jsonify(
+        {
+            "record_id": record_id,
+            "student_id": student["id"],
+            "full_name": student["full_name"],
+            "roll_number": student["roll_number"],
+        }
+    )
 
 
 @app.get("/api/attendance/sessions/<session_id>/report")
@@ -414,16 +486,17 @@ def attendance_session_report(session_id):
 
     records_result = (
         supabase.table("attendance_records")
-        .select("student_id, confidence, face_crop_url, source_image, students(full_name, roll_number)")
+        .select("id, student_id, confidence, face_crop_url, source_image, students(full_name, roll_number)")
         .eq("session_id", session_id)
         .execute()
     )
 
-    recognized = [
+    detected_faces = [
         {
+            "record_id": r["id"],
             "student_id": r["student_id"],
-            "full_name": r["students"]["full_name"],
-            "roll_number": r["students"]["roll_number"],
+            "full_name": r["students"]["full_name"] if r["students"] else None,
+            "roll_number": r["students"]["roll_number"] if r["students"] else None,
             "confidence": r["confidence"],
             "face_crop_url": r["face_crop_url"],
             "source_image": r["source_image"],
@@ -431,7 +504,7 @@ def attendance_session_report(session_id):
         for r in records_result.data
     ]
 
-    return jsonify({**session, "recognized": recognized})
+    return jsonify({**session, "detected_faces": detected_faces})
 
 
 if __name__ == "__main__":

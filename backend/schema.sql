@@ -47,10 +47,13 @@ create table if not exists attendance_sessions (
 create table if not exists attendance_records (
     id uuid primary key default gen_random_uuid(),
     session_id uuid not null references attendance_sessions(id) on delete cascade,
-    student_id uuid not null references students(id) on delete cascade,
+    -- Nullable: every detected face gets a row, even ones that didn't match anyone. A teacher can
+    -- later identify an "unknown" face, which fills this in via the /identify endpoint.
+    student_id uuid references students(id) on delete cascade,
     source_image text not null check (source_image in ('left', 'right')),
     face_crop_url text,
     confidence double precision,
+    manually_confirmed boolean not null default false,
     marked_at timestamptz not null default now(),
     unique (session_id, student_id)
 );

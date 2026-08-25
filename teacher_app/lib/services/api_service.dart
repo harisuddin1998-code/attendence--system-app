@@ -109,4 +109,22 @@ class ApiService {
     final response = await http.Response.fromStream(streamedResponse);
     return AttendanceReport.fromJson(_decodeOrThrow(response));
   }
+
+  Future<DetectedFace> identifyFace({required String recordId, required String rollNumber}) async {
+    final client = await _client();
+    final response = await client.post(
+      _uri("/api/attendance/records/$recordId/identify"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({"roll_number": rollNumber}),
+    );
+    final body = _decodeOrThrow(response);
+    return DetectedFace(
+      recordId: body["record_id"],
+      faceCropUrl: "",
+      sourceImage: "",
+      studentId: body["student_id"],
+      fullName: body["full_name"],
+      rollNumber: body["roll_number"],
+    );
+  }
 }
