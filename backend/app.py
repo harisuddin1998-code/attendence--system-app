@@ -53,6 +53,20 @@ def downloads_page():
     return render_template("downloads.html", apks=apks)
 
 
+@app.get("/downloads/apk/<apk_name>")
+def download_apk(apk_name):
+    if apk_name not in ("teacher_app.apk", "student_app.apk"):
+        return error_response("Not found.", status=404)
+
+    downloads_dir = os.path.join(app.static_folder, "downloads")
+    # Every rebuilt APK reuses the same filename, so without this the browser (and phones especially)
+    # will happily serve a stale cached copy instead of re-downloading after an update.
+    response = send_from_directory(downloads_dir, apk_name, as_attachment=True, conditional=False)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers.pop("ETag", None)
+    return response
+
+
 @app.get("/firebase-messaging-sw.js")
 def firebase_messaging_sw():
     # Served from the root path (not /static/...) so its default service-worker scope covers the whole site.

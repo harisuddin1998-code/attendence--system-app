@@ -11,7 +11,7 @@
         <p class="hint">Capture classroom photos and mark attendance.</p>
       </div>
       {% if apks.teacher %}
-        <a class="button" href="{{ url_for('static', filename='downloads/teacher_app.apk') }}">Download</a>
+        <a class="button" href="{{ url_for('download_apk', apk_name='teacher_app.apk') }}">Download</a>
       {% else %}
         <span class="hint">Not uploaded yet</span>
       {% endif %}
@@ -23,7 +23,7 @@
         <p class="hint">Register your face once and view your attendance history.</p>
       </div>
       {% if apks.student %}
-        <a class="button" href="{{ url_for('static', filename='downloads/student_app.apk') }}">Download</a>
+        <a class="button" href="{{ url_for('download_apk', apk_name='student_app.apk') }}">Download</a>
       {% else %}
         <span class="hint">Not uploaded yet</span>
       {% endif %}
