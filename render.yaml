@@ -22,7 +22,7 @@ services:
       - key: FIREBASE_CREDENTIALS_JSON
         sync: false
       - key: FACE_MATCH_THRESHOLD
-        value: "0.5"
+        value: "0.6"
       - key: FLASK_SECRET_KEY
         generateValue: true
       - key: PYTHON_VERSION
