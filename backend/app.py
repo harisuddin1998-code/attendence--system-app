@@ -9,9 +9,9 @@ import config
 from face_service import (
     MultipleFacesFoundError,
     NoFaceFoundError,
+    closest_student,
     detect_faces_in_group_photo,
     encode_single_face,
-    match_face_to_student,
 )
 from firebase_service import send_attendance_notification
 from storage_service import upload_image
@@ -320,6 +320,7 @@ def mark_attendance():
 
     matched_student_ids = set()
     recognized = []
+    closest_misses = []
     total_faces_detected = 0
     marked_at_iso = datetime.now(timezone.utc).isoformat()
 
@@ -328,8 +329,24 @@ def mark_attendance():
         total_faces_detected += len(faces)
 
         for face in faces:
-            student, distance = match_face_to_student(face.encoding, known_students)
-            if student is None or student["id"] in matched_student_ids:
+            student, distance = closest_student(face.encoding, known_students)
+
+            if student is None:
+                continue
+            if distance > config.FACE_MATCH_THRESHOLD:
+                # Not confident enough to mark present, but this is exactly the number to look at when
+                # tuning FACE_MATCH_THRESHOLD - the closer it is to the threshold, the more likely this
+                # really is the same person just photographed at a worse angle/distance/lighting.
+                closest_misses.append(
+                    {
+                        "full_name": student["full_name"],
+                        "roll_number": student["roll_number"],
+                        "distance": round(distance, 4),
+                        "source_image": source_label,
+                    }
+                )
+                continue
+            if student["id"] in matched_student_ids:
                 continue
 
             matched_student_ids.add(student["id"])
@@ -381,6 +398,8 @@ def mark_attendance():
             "total_students_recognized": len(matched_student_ids),
             "unrecognized_faces_count": total_faces_detected - len(matched_student_ids),
             "recognized": recognized,
+            "closest_misses": closest_misses,
+            "match_threshold": config.FACE_MATCH_THRESHOLD,
         }
     ), 201
 

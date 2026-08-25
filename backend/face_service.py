@@ -89,16 +89,22 @@ def detect_faces_in_group_photo(image_bytes: bytes) -> list[DetectedFace]:
     return faces
 
 
-def match_face_to_student(encoding: np.ndarray, students: list[dict]) -> tuple[dict | None, float | None]:
-    """students: list of {"id", "face_encoding": [...]}. Returns (best_matching_student, distance) or (None, None)."""
+def closest_student(encoding: np.ndarray, students: list[dict]) -> tuple[dict | None, float | None]:
+    """students: list of {"id", "face_encoding": [...]}. Always returns the nearest candidate + its
+    distance (even if it's not a confident match) so callers can decide what to do with it."""
     if not students:
         return None, None
 
     known_encodings = np.array([s["face_encoding"] for s in students])
     distances = np.linalg.norm(known_encodings - encoding, axis=1)
     best_index = int(np.argmin(distances))
-    best_distance = float(distances[best_index])
+    return students[best_index], float(distances[best_index])
 
-    if best_distance <= FACE_MATCH_THRESHOLD:
-        return students[best_index], best_distance
+
+def match_face_to_student(encoding: np.ndarray, students: list[dict]) -> tuple[dict | None, float | None]:
+    """Same as closest_student, but returns (None, None) if the closest candidate isn't within
+    FACE_MATCH_THRESHOLD."""
+    student, distance = closest_student(encoding, students)
+    if student is not None and distance <= FACE_MATCH_THRESHOLD:
+        return student, distance
     return None, None
