@@ -3,11 +3,11 @@
 {% block content %}
   <section class="hero">
     <h1>Face Recognition Attendance System</h1>
-    <p>Register your face once. Your teacher marks class attendance from two classroom photos, and
-       you get notified the moment you're marked present.</p>
+    <p>Your teacher marks class attendance from two classroom photos, and you get notified the moment
+       you're marked present. Register your face once from the Student app (see Download Apps).</p>
     <div class="actions">
-      <a class="button" href="{{ url_for('register_page') }}">Register my face</a>
-      <a class="button secondary" href="{{ url_for('dashboard_page') }}">View my attendance</a>
+      <a class="button" href="{{ url_for('dashboard_page') }}">View my attendance</a>
+      <a class="button secondary" href="{{ url_for('downloads_page') }}">Download Apps</a>
     </div>
   </section>
 {% endblock %}

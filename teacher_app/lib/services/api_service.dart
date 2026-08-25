@@ -5,10 +5,9 @@ import 'package:http/http.dart' as http;
 
 import '../models/attendance_report.dart';
 
-/// Change this to your deployed backend, e.g. "https://yourusername.pythonanywhere.com".
-/// Use "http://10.0.2.2:5000" to reach a Flask dev server on your PC from the Android emulator.
+/// Use "http://10.0.2.2:5000" instead to reach a local Flask dev server from the Android emulator.
 class ApiConfig {
-  static const String baseUrl = "https://REPLACE_WITH_YOUR_PYTHONANYWHERE_DOMAIN.pythonanywhere.com";
+  static const String baseUrl = "https://attendance-backend-c91g.onrender.com";
 }
 
 class ApiException implements Exception {

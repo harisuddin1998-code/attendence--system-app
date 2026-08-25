@@ -30,17 +30,12 @@ def error_response(message: str, status: int = 400):
 
 
 # ---------------------------------------------------------------------------
-# Pages (student registration web app)
+# Pages (student attendance web app - registration is app-only, see student_app/)
 # ---------------------------------------------------------------------------
 
 @app.get("/")
 def index():
     return render_template("index.html")
-
-
-@app.get("/register")
-def register_page():
-    return render_template("register.html")
 
 
 @app.get("/dashboard")

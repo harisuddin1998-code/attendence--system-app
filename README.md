@@ -167,18 +167,18 @@ App flow: student registers once (name, roll number, class, front photo required
 left/right/extra-angle photos for accuracy) → afterwards opens the app and it goes straight to their
 attendance history (roll number is remembered on-device), pull-to-refresh to see new records.
 
-## 7. Student flow via the website (no app install)
+## 7. Student flow via the website (attendance history only, no registration)
 
-Students can instead go to `https://yourusername.pythonanywhere.com/register`, fill in name/roll
-number/class, and capture their face photo(s) via webcam (front required, left/right/extra optional —
-same accuracy benefit as the app). Afterwards `/dashboard` lets them look up their roll number to see
-attendance history and turn on browser push notifications.
+Face registration is app-only (`student_app`) - the website has no `/register` page. Once a student has
+registered in the app, `/dashboard` on the website still lets them look up their roll number to see
+attendance history and turn on browser push notifications, for anyone who'd rather check from a browser
+than open the app.
 
 ## 8. Download Apps page
 
-`https://yourusername.pythonanywhere.com/downloads` lists both APKs once you've uploaded them (step 4.7
-above). Until then it shows "Not uploaded yet" for whichever one is missing — the route checks
-`backend/static/downloads/` at request time, no config needed.
+`/downloads` on your deployed backend (Render or PythonAnywhere) lists both APKs — they're committed
+straight into `backend/static/downloads/` in this repo, so no manual upload step is needed on Render.
+If a file is missing it shows "Not uploaded yet" instead of a broken link.
 
 ---
 
