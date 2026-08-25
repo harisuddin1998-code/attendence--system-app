@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../models/attendance_report.dart';
+import 'trusted_http_client.dart';
 
 /// Use "http://10.0.2.2:5000" instead to reach a local Flask dev server from the Android emulator.
 class ApiConfig {
@@ -42,6 +43,13 @@ class TeacherAccount {
 }
 
 class ApiService {
+  static Future<http.Client>? _clientFuture;
+
+  Future<http.Client> _client() {
+    _clientFuture ??= createTrustedHttpClient();
+    return _clientFuture!;
+  }
+
   Uri _uri(String path) => Uri.parse("${ApiConfig.baseUrl}$path");
 
   Map<String, dynamic> _decodeOrThrow(http.Response response) {
@@ -53,7 +61,8 @@ class ApiService {
   }
 
   Future<TeacherAccount> login(String email, String password) async {
-    final response = await http.post(
+    final client = await _client();
+    final response = await client.post(
       _uri("/api/teachers/login"),
       headers: {"Content-Type": "application/json"},
       body: jsonEncode({"email": email, "password": password}),
@@ -68,7 +77,8 @@ class ApiService {
     required String password,
     required List<String> courses,
   }) async {
-    final response = await http.post(
+    final client = await _client();
+    final response = await client.post(
       _uri("/api/teachers/register"),
       headers: {"Content-Type": "application/json"},
       body: jsonEncode({
@@ -88,13 +98,14 @@ class ApiService {
     required File leftImage,
     required File rightImage,
   }) async {
+    final client = await _client();
     final request = http.MultipartRequest("POST", _uri("/api/attendance/mark"))
       ..fields["teacher_id"] = teacherId
       ..fields["class_name"] = className
       ..files.add(await http.MultipartFile.fromPath("left_image", leftImage.path))
       ..files.add(await http.MultipartFile.fromPath("right_image", rightImage.path));
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
     return AttendanceReport.fromJson(_decodeOrThrow(response));
   }
