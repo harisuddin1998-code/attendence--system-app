@@ -1,3 +1,4 @@
+import concurrent.futures
 import logging
 import os
 from datetime import datetime, timezone
@@ -23,6 +24,11 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config["SECRET_KEY"] = config.SECRET_KEY
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB, enough for two classroom photos
+
+# Face crop uploads / DB inserts / FCM sends are network round-trips to Supabase - running them one
+# face at a time (as the old code did) meant a 30-face class made 60-90 sequential HTTP calls. Batching
+# them across a thread pool turns that into a handful of concurrent calls.
+MAX_WORKERS = 8
 
 
 def error_response(message: str, status: int = 400):
@@ -315,58 +321,102 @@ def mark_attendance():
     session = session_result.data[0]
     session_id = session["id"]
 
-    left_url = upload_image(config.BUCKET_ATTENDANCE_IMAGES, left_bytes)
-    right_url = upload_image(config.BUCKET_ATTENDANCE_IMAGES, right_bytes)
+    # Upload both classroom photos and run face detection on both concurrently instead of one after
+    # another - detection is CPU-bound but the upload calls are pure network wait time either way.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        left_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, left_bytes)
+        right_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, right_bytes)
+        left_faces_future = pool.submit(detect_faces_in_group_photo, left_bytes)
+        right_faces_future = pool.submit(detect_faces_in_group_photo, right_bytes)
 
+        left_url = left_url_future.result()
+        right_url = right_url_future.result()
+        left_faces = left_faces_future.result()
+        right_faces = right_faces_future.result()
+
+    all_faces = [("left", f) for f in left_faces] + [("right", f) for f in right_faces]
+    total_faces_detected = len(all_faces)
+
+    # Work out every match first - this is pure in-memory numpy math, no network calls, so it's cheap
+    # even for a full class.
     matched_student_ids = set()
-    detected_faces = []
-    total_faces_detected = 0
+    face_infos = []
+    for source_label, face in all_faces:
+        candidate, distance = closest_student(face.encoding, known_students)
+        is_match = candidate is not None and distance <= config.FACE_MATCH_THRESHOLD
+        # A student appearing in both photos (or twice in one) only gets marked present once - the
+        # unique(session_id, student_id) constraint enforces that at the DB level too.
+        already_marked = is_match and candidate["id"] in matched_student_ids
+        if is_match and not already_marked:
+            matched_student_ids.add(candidate["id"])
+        face_infos.append(
+            {
+                "source_label": source_label,
+                "face": face,
+                "candidate": candidate,
+                "distance": distance,
+                "is_match": is_match,
+                "already_marked": already_marked,
+            }
+        )
+
+    # Upload every face crop concurrently instead of one at a time.
+    if face_infos:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            crop_urls = list(
+                pool.map(
+                    lambda info: upload_image(config.BUCKET_FACE_CROPS, info["face"].crop_jpeg_bytes),
+                    face_infos,
+                )
+            )
+    else:
+        crop_urls = []
+
+    # One batch insert for every detected face instead of one insert per face.
+    records_payload = [
+        {
+            "session_id": session_id,
+            "student_id": info["candidate"]["id"] if (info["is_match"] and not info["already_marked"]) else None,
+            "source_image": info["source_label"],
+            "face_crop_url": face_crop_url,
+            "confidence": round(1 - info["distance"], 4) if info["is_match"] else None,
+        }
+        for info, face_crop_url in zip(face_infos, crop_urls)
+    ]
+    inserted_records = (
+        supabase.table("attendance_records").insert(records_payload).execute().data if records_payload else []
+    )
+
     marked_at_iso = datetime.now(timezone.utc).isoformat()
+    detected_faces = []
 
-    for source_label, image_bytes in (("left", left_bytes), ("right", right_bytes)):
-        faces = detect_faces_in_group_photo(image_bytes)
-        total_faces_detected += len(faces)
-
-        for face in faces:
-            candidate, distance = closest_student(face.encoding, known_students)
-            is_match = candidate is not None and distance <= config.FACE_MATCH_THRESHOLD
-            # A student appearing in both photos (or twice in one) only gets marked present once - the
-            # unique(session_id, student_id) constraint enforces that at the DB level too.
-            already_marked = is_match and candidate["id"] in matched_student_ids
-
-            face_crop_url = upload_image(config.BUCKET_FACE_CROPS, face.crop_jpeg_bytes)
+    # Push notifications go out concurrently too - the response doesn't wait on them one at a time.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        for info, face_crop_url, record in zip(face_infos, crop_urls, inserted_records):
+            candidate = info["candidate"]
+            is_match = info["is_match"]
+            already_marked = info["already_marked"]
+            distance = info["distance"]
             confidence = round(1 - distance, 4) if is_match else None
 
-            record_result = (
-                supabase.table("attendance_records")
-                .insert(
-                    {
-                        "session_id": session_id,
-                        "student_id": candidate["id"] if (is_match and not already_marked) else None,
-                        "source_image": source_label,
-                        "face_crop_url": face_crop_url,
-                        "confidence": confidence,
-                    }
+            if is_match and not already_marked and candidate.get("fcm_token"):
+                pool.submit(
+                    send_attendance_notification,
+                    candidate["fcm_token"],
+                    candidate["full_name"],
+                    class_name,
+                    marked_at_iso,
+                    face_crop_url,
                 )
-                .execute()
-            )
-            record_id = record_result.data[0]["id"]
-
-            if is_match and not already_marked:
-                matched_student_ids.add(candidate["id"])
-                if candidate.get("fcm_token"):
-                    send_attendance_notification(
-                        candidate["fcm_token"], candidate["full_name"], class_name, marked_at_iso, face_crop_url
-                    )
 
             # "Unknown" faces still carry the nearest candidate's name/distance as a hint - lets the
             # teacher confirm a near-miss with one tap instead of typing the roll number from scratch.
             has_hint = candidate is not None and not is_match
             detected_faces.append(
                 {
-                    "record_id": record_id,
+                    "record_id": record["id"],
                     "face_crop_url": face_crop_url,
-                    "source_image": source_label,
+                    "source_image": info["source_label"],
                     "student_id": candidate["id"] if is_match else None,
                     "full_name": candidate["full_name"] if is_match else None,
                     "roll_number": candidate["roll_number"] if is_match else None,
