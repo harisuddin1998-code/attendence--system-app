@@ -1,10 +1,25 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'firebase_options.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/welcome_screen.dart';
+import 'services/notification_service.dart';
 
-void main() {
+// Must be a top-level function - FCM calls this in a separate isolate when a message arrives
+// while the app is backgrounded or terminated. It doesn't need to do anything: the backend sends
+// a `notification` payload, which Android displays via the system tray on its own in that case.
+// The handler just needs to exist for background delivery to be registered at all.
+@pragma('vm:entry-point')
+Future<void> _firebaseBackgroundHandler(RemoteMessage message) async {}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.android);
+  FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundHandler);
+  await NotificationService.instance.init();
   runApp(const AttendanceStudentApp());
 }
 

@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -24,6 +25,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadHistory();
+    _registerPushToken();
+  }
+
+  /// Sends this device's FCM registration token to the backend so it can push "marked present"
+  /// notifications here. Also re-sends it whenever FCM rotates the token.
+  Future<void> _registerPushToken() async {
+    try {
+      final messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      final token = await messaging.getToken();
+      if (token != null) {
+        await _apiService.updateFcmToken(widget.studentId, token);
+      }
+      messaging.onTokenRefresh.listen((newToken) {
+        _apiService.updateFcmToken(widget.studentId, newToken);
+      });
+    } catch (_) {
+      // Non-fatal - attendance history still works without push notifications.
+    }
   }
 
   Future<void> _loadHistory() async {

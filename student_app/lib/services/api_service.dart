@@ -44,6 +44,15 @@ class ApiService {
     return StudentProfile.fromJson(_decodeOrThrow(response) as Map<String, dynamic>);
   }
 
+  Future<void> updateFcmToken(String studentId, String token) async {
+    final client = await _client();
+    await client.post(
+      _uri("/api/students/$studentId/fcm-token"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({"token": token}),
+    );
+  }
+
   Future<List<AttendanceHistoryEntry>> getAttendanceHistory(String studentId) async {
     final client = await _client();
     final response = await client.get(_uri("/api/students/$studentId/attendance"));
