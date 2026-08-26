@@ -14,8 +14,9 @@ from face_service import (
     MultipleFacesFoundError,
     NoFaceFoundError,
     closest_student,
-    detect_faces_in_group_photo,
-    encode_single_face,
+    detect_faces_in_array,
+    encode_single_face_from_array,
+    process_image,
 )
 from firebase_service import send_attendance_notification
 from storage_service import upload_image
@@ -129,7 +130,8 @@ def register_student():
     skipped_poses = []
     for pose_label, photo_bytes in pose_photos:
         try:
-            encoding = encode_single_face(photo_bytes)
+            processed = process_image(photo_bytes)
+            encoding = encode_single_face_from_array(processed.rgb_array)
         except (NoFaceFoundError, MultipleFacesFoundError) as exc:
             if pose_label == "front":
                 return error_response(f"{pose_label} photo: {exc}")
@@ -138,7 +140,8 @@ def register_student():
             # registration over a photo that was never required.
             skipped_poses.append(pose_label)
             continue
-        encoded_poses.append((pose_label, photo_bytes, encoding))
+        # Store the downscaled photo, not the original multi-MB phone capture.
+        encoded_poses.append((pose_label, processed.downscaled_jpeg_bytes, encoding))
 
     supabase = get_supabase()
 
@@ -371,13 +374,17 @@ def mark_attendance():
     session = session_result.data[0]
     session_id = session["id"]
 
-    # Upload both classroom photos and run face detection on both concurrently instead of one after
-    # another - detection is CPU-bound but the upload calls are pure network wait time either way.
+    # Decode + downscale both photos once (in parallel) - the resulting array feeds face detection
+    # and the re-encoded JPEG is what gets uploaded, instead of paying for a second decode and
+    # uploading the original multi-MB phone photo.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        left_processed, right_processed = pool.map(process_image, [left_bytes, right_bytes])
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        left_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, left_bytes)
-        right_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, right_bytes)
-        left_faces_future = pool.submit(detect_faces_in_group_photo, left_bytes)
-        right_faces_future = pool.submit(detect_faces_in_group_photo, right_bytes)
+        left_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, left_processed.downscaled_jpeg_bytes)
+        right_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, right_processed.downscaled_jpeg_bytes)
+        left_faces_future = pool.submit(detect_faces_in_array, left_processed.rgb_array)
+        right_faces_future = pool.submit(detect_faces_in_array, right_processed.rgb_array)
 
         left_url = left_url_future.result()
         right_url = right_url_future.result()

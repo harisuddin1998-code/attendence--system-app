@@ -34,7 +34,20 @@ class DetectedFace:
     crop_jpeg_bytes: bytes
 
 
-def _load_rgb_image(image_bytes: bytes) -> np.ndarray:
+@dataclass
+class ProcessedImage:
+    rgb_array: np.ndarray
+    # Re-encoded, downscaled JPEG bytes - this is what actually gets stored in Supabase now,
+    # instead of the original multi-MB phone photo, since only the array is needed for detection.
+    downscaled_jpeg_bytes: bytes
+
+
+def process_image(image_bytes: bytes) -> ProcessedImage:
+    """Decodes, EXIF-corrects and downscales an uploaded photo exactly once. The array is used for
+    face detection/encoding; the re-encoded bytes are what gets uploaded to storage - doing both
+    from a single decode avoids paying for it twice, and uploading the downscaled JPEG instead of
+    the original cuts storage use (and upload time) by roughly 5-8x for a typical phone photo.
+    """
     image = Image.open(io.BytesIO(image_bytes))
     image = ImageOps.exif_transpose(image)  # phone photos carry rotation as EXIF, not pixel data
     image = image.convert("RGB")
@@ -42,12 +55,16 @@ def _load_rgb_image(image_bytes: bytes) -> np.ndarray:
     if max(image.size) > MAX_IMAGE_DIMENSION:
         image.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.LANCZOS)
 
-    return np.array(image)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+    return ProcessedImage(rgb_array=np.array(image), downscaled_jpeg_bytes=buffer.getvalue())
 
 
-def encode_single_face(image_bytes: bytes) -> list:
-    """Used during one-time student registration. Requires exactly one face in the photo."""
-    rgb_image = _load_rgb_image(image_bytes)
+def _load_rgb_image(image_bytes: bytes) -> np.ndarray:
+    return process_image(image_bytes).rgb_array
+
+
+def encode_single_face_from_array(rgb_image: np.ndarray) -> list:
     locations = face_recognition.face_locations(rgb_image, model="hog")
 
     if len(locations) == 0:
@@ -57,6 +74,11 @@ def encode_single_face(image_bytes: bytes) -> list:
 
     encodings = face_recognition.face_encodings(rgb_image, known_face_locations=locations)
     return encodings[0].tolist()
+
+
+def encode_single_face(image_bytes: bytes) -> list:
+    """Used during one-time student registration. Requires exactly one face in the photo."""
+    return encode_single_face_from_array(_load_rgb_image(image_bytes))
 
 
 def _crop_face_jpeg(rgb_image: np.ndarray, location: tuple, padding_ratio: float = 0.3) -> bytes:
@@ -76,9 +98,7 @@ def _crop_face_jpeg(rgb_image: np.ndarray, location: tuple, padding_ratio: float
     return buffer.getvalue()
 
 
-def detect_faces_in_group_photo(image_bytes: bytes) -> list[DetectedFace]:
-    """Used when a teacher uploads a classroom photo (left or right half)."""
-    rgb_image = _load_rgb_image(image_bytes)
+def detect_faces_in_array(rgb_image: np.ndarray) -> list[DetectedFace]:
     locations = face_recognition.face_locations(rgb_image, model="hog")
     encodings = face_recognition.face_encodings(rgb_image, known_face_locations=locations)
 
@@ -87,6 +107,11 @@ def detect_faces_in_group_photo(image_bytes: bytes) -> list[DetectedFace]:
         crop_bytes = _crop_face_jpeg(rgb_image, location)
         faces.append(DetectedFace(location=location, encoding=encoding, crop_jpeg_bytes=crop_bytes))
     return faces
+
+
+def detect_faces_in_group_photo(image_bytes: bytes) -> list[DetectedFace]:
+    """Used when a teacher uploads a classroom photo (left or right half)."""
+    return detect_faces_in_array(_load_rgb_image(image_bytes))
 
 
 def closest_student(encoding: np.ndarray, students: list[dict]) -> tuple[dict | None, float | None]:
