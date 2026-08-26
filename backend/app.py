@@ -380,16 +380,19 @@ def mark_attendance():
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         left_processed, right_processed = pool.map(process_image, [left_bytes, right_bytes])
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    # Uploads are pure network waiting, cheap to run concurrently. Face detection (dlib/HOG) is the
+    # actually memory-heavy step - running it on both photos at once nearly doubled peak memory and
+    # was tipping Render's free-tier 512MB instance into OOM restarts. Keep detection sequential; the
+    # uploads below still overlap with it on their own threads either way.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         left_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, left_processed.downscaled_jpeg_bytes)
         right_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, right_processed.downscaled_jpeg_bytes)
-        left_faces_future = pool.submit(detect_faces_in_array, left_processed.rgb_array)
-        right_faces_future = pool.submit(detect_faces_in_array, right_processed.rgb_array)
+
+        left_faces = detect_faces_in_array(left_processed.rgb_array)
+        right_faces = detect_faces_in_array(right_processed.rgb_array)
 
         left_url = left_url_future.result()
         right_url = right_url_future.result()
-        left_faces = left_faces_future.result()
-        right_faces = right_faces_future.result()
 
     all_faces = [("left", f) for f in left_faces] + [("right", f) for f in right_faces]
     total_faces_detected = len(all_faces)
