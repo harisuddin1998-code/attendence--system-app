@@ -4,6 +4,7 @@ class StudentProfile {
   final String rollNumber;
   final String className;
   final String photoUrl;
+  final String token;
 
   StudentProfile({
     required this.id,
@@ -11,6 +12,7 @@ class StudentProfile {
     required this.rollNumber,
     required this.className,
     required this.photoUrl,
+    required this.token,
   });
 
   factory StudentProfile.fromJson(Map<String, dynamic> json) => StudentProfile(
@@ -19,6 +21,7 @@ class StudentProfile {
         rollNumber: json["roll_number"],
         className: json["class_name"],
         photoUrl: json["photo_url"] ?? "",
+        token: json["token"],
       );
 }
 

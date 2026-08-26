@@ -3,10 +3,13 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, g, jsonify, render_template, request, send_from_directory
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import config
+from auth import issue_token, require_auth
 from face_service import (
     MultipleFacesFoundError,
     NoFaceFoundError,
@@ -24,6 +27,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config["SECRET_KEY"] = config.SECRET_KEY
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB, enough for two classroom photos
+
+limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour"])
 
 # Face crop uploads / DB inserts / FCM sends are network round-trips to Supabase - running them one
 # face at a time (as the old code did) meant a 30-face class made 60-90 sequential HTTP calls. Batching
@@ -99,14 +104,20 @@ POSE_FIELDS = {
 
 
 @app.post("/api/students/register")
+@limiter.limit("10 per hour")
 def register_student():
     full_name = request.form.get("full_name", "").strip()
     roll_number = request.form.get("roll_number", "").strip()
     class_name = request.form.get("class_name", "").strip()
+    password = request.form.get("password", "")
     front_photo = request.files.get("photo_front")
 
-    if not full_name or not roll_number or not class_name or not front_photo:
-        return error_response("full_name, roll_number, class_name and photo_front are all required.")
+    if not full_name or not roll_number or not class_name or not password or not front_photo:
+        return error_response(
+            "full_name, roll_number, class_name, password and photo_front are all required."
+        )
+    if len(password) < 4:
+        return error_response("password must be at least 4 characters.")
 
     pose_photos = []
     for field_name, pose_label in POSE_FIELDS.items():
@@ -145,6 +156,7 @@ def register_student():
                 "roll_number": roll_number,
                 "class_name": class_name,
                 "photo_url": front_url,
+                "password_hash": generate_password_hash(password),
             }
         )
         .execute()
@@ -158,6 +170,7 @@ def register_student():
 
     return jsonify(
         {
+            "token": issue_token("student", student["id"]),
             "id": student["id"],
             "full_name": student["full_name"],
             "roll_number": student["roll_number"],
@@ -169,26 +182,46 @@ def register_student():
     ), 201
 
 
-@app.get("/api/students/lookup")
-def lookup_student():
-    roll_number = request.args.get("roll_number", "").strip()
-    if not roll_number:
-        return error_response("roll_number query param is required.")
+@app.post("/api/students/login")
+@limiter.limit("10 per minute")
+def login_student():
+    body = request.get_json(silent=True) or {}
+    roll_number = body.get("roll_number", "").strip()
+    password = body.get("password", "")
+    if not roll_number or not password:
+        return error_response("roll_number and password are required.")
 
     supabase = get_supabase()
     result = (
         supabase.table("students")
-        .select("id, full_name, roll_number, class_name, photo_url")
+        .select("id, full_name, roll_number, class_name, photo_url, password_hash")
         .eq("roll_number", roll_number)
         .execute()
     )
-    if not result.data:
-        return error_response("No student found with that roll number.", status=404)
-    return jsonify(result.data[0])
+    student = result.data[0] if result.data else None
+    if not student or not student.get("password_hash") or not check_password_hash(
+        student["password_hash"], password
+    ):
+        return error_response("Invalid roll number or password.", status=401)
+
+    return jsonify(
+        {
+            "token": issue_token("student", student["id"]),
+            "id": student["id"],
+            "full_name": student["full_name"],
+            "roll_number": student["roll_number"],
+            "class_name": student["class_name"],
+            "photo_url": student["photo_url"],
+        }
+    )
 
 
 @app.post("/api/students/<student_id>/fcm-token")
+@require_auth("student")
 def save_fcm_token(student_id):
+    if g.auth_subject_id != student_id:
+        return error_response("Forbidden.", status=403)
+
     body = request.get_json(silent=True) or {}
     token = body.get("token", "").strip()
     if not token:
@@ -200,7 +233,11 @@ def save_fcm_token(student_id):
 
 
 @app.get("/api/students/<student_id>/attendance")
+@require_auth("student")
 def student_attendance_history(student_id):
+    if g.auth_subject_id != student_id:
+        return error_response("Forbidden.", status=403)
+
     supabase = get_supabase()
     result = (
         supabase.table("attendance_records")
@@ -213,7 +250,7 @@ def student_attendance_history(student_id):
 
 
 # ---------------------------------------------------------------------------
-# Teachers (minimal auth, no JWT - MVP)
+# Teachers
 # ---------------------------------------------------------------------------
 
 def _teacher_public_fields(teacher: dict) -> dict:
@@ -227,6 +264,7 @@ def _teacher_public_fields(teacher: dict) -> dict:
 
 
 @app.post("/api/teachers/register")
+@limiter.limit("10 per hour")
 def register_teacher():
     body = request.get_json(silent=True) or {}
     name = body.get("name", "").strip()
@@ -262,10 +300,12 @@ def register_teacher():
         )
         .execute()
     )
-    return jsonify(_teacher_public_fields(result.data[0])), 201
+    teacher = result.data[0]
+    return jsonify({"token": issue_token("teacher", teacher["id"]), **_teacher_public_fields(teacher)}), 201
 
 
 @app.post("/api/teachers/login")
+@limiter.limit("10 per minute")
 def login_teacher():
     body = request.get_json(silent=True) or {}
     email = body.get("email", "").strip().lower()
@@ -276,7 +316,8 @@ def login_teacher():
     if not result.data or not check_password_hash(result.data[0]["password_hash"], password):
         return error_response("Invalid email or password.", status=401)
 
-    return jsonify(_teacher_public_fields(result.data[0]))
+    teacher = result.data[0]
+    return jsonify({"token": issue_token("teacher", teacher["id"]), **_teacher_public_fields(teacher)})
 
 
 # ---------------------------------------------------------------------------
@@ -284,8 +325,12 @@ def login_teacher():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/attendance/mark")
+@require_auth("teacher")
+@limiter.limit("30 per minute")
 def mark_attendance():
-    teacher_id = request.form.get("teacher_id", "").strip()
+    # The token identifies the teacher now - a client can no longer just pass any teacher_id in
+    # the form and have it trusted.
+    teacher_id = g.auth_subject_id
     class_name = request.form.get("class_name", "").strip()
     left_image = request.files.get("left_image")
     right_image = request.files.get("right_image")
@@ -457,6 +502,7 @@ def mark_attendance():
 
 
 @app.post("/api/attendance/records/<record_id>/identify")
+@require_auth("teacher")
 def identify_attendance_record(record_id):
     """Lets a teacher assign a name to a face the automatic matching left as "unknown"."""
     body = request.get_json(silent=True) or {}
@@ -532,6 +578,7 @@ def identify_attendance_record(record_id):
 
 
 @app.get("/api/attendance/sessions/<session_id>/report")
+@require_auth("teacher")
 def attendance_session_report(session_id):
     supabase = get_supabase()
     session_result = supabase.table("attendance_sessions").select("*").eq("id", session_id).execute()

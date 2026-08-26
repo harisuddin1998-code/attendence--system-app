@@ -24,6 +24,7 @@ class TeacherAccount {
   final String teachingId;
   final String email;
   final List<String> courses;
+  final String token;
 
   TeacherAccount({
     required this.id,
@@ -31,6 +32,7 @@ class TeacherAccount {
     required this.teachingId,
     required this.email,
     required this.courses,
+    required this.token,
   });
 
   factory TeacherAccount.fromJson(Map<String, dynamic> json) => TeacherAccount(
@@ -39,11 +41,18 @@ class TeacherAccount {
         teachingId: json["teaching_id"] ?? "",
         email: json["email"],
         courses: (json["courses"] as List?)?.map((e) => e.toString()).toList() ?? [],
+        token: json["token"],
       );
 }
 
 class ApiService {
   static Future<http.Client>? _clientFuture;
+
+  // Shared across every ApiService instance so a token set once at login/startup is used
+  // everywhere without having to thread it through every screen.
+  static String? _authToken;
+
+  static void setAuthToken(String? token) => _authToken = token;
 
   Future<http.Client> _client() {
     _clientFuture ??= createTrustedHttpClient();
@@ -51,6 +60,9 @@ class ApiService {
   }
 
   Uri _uri(String path) => Uri.parse("${ApiConfig.baseUrl}$path");
+
+  Map<String, String> get _authHeader =>
+      _authToken != null ? {"Authorization": "Bearer $_authToken"} : {};
 
   Map<String, dynamic> _decodeOrThrow(http.Response response) {
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -99,8 +111,10 @@ class ApiService {
     required File rightImage,
   }) async {
     final client = await _client();
+    // teacher_id is no longer sent - the backend identifies the teacher from the Bearer token
+    // instead of trusting a client-supplied field.
     final request = http.MultipartRequest("POST", _uri("/api/attendance/mark"))
-      ..fields["teacher_id"] = teacherId
+      ..headers.addAll(_authHeader)
       ..fields["class_name"] = className
       ..files.add(await http.MultipartFile.fromPath("left_image", leftImage.path))
       ..files.add(await http.MultipartFile.fromPath("right_image", rightImage.path));
@@ -114,7 +128,7 @@ class ApiService {
     final client = await _client();
     final response = await client.post(
       _uri("/api/attendance/records/$recordId/identify"),
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", ..._authHeader},
       body: jsonEncode({"roll_number": rollNumber}),
     );
     final body = _decodeOrThrow(response);

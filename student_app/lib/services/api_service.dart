@@ -21,6 +21,12 @@ class ApiException implements Exception {
 class ApiService {
   static Future<http.Client>? _clientFuture;
 
+  // Shared across every ApiService instance so a token set once at login/registration is used
+  // everywhere without having to thread it through every screen.
+  static String? _authToken;
+
+  static void setAuthToken(String? token) => _authToken = token;
+
   Future<http.Client> _client() {
     _clientFuture ??= createTrustedHttpClient();
     return _clientFuture!;
@@ -28,6 +34,9 @@ class ApiService {
 
   Uri _uri(String path, [Map<String, String>? query]) =>
       Uri.parse("${ApiConfig.baseUrl}$path").replace(queryParameters: query);
+
+  Map<String, String> get _authHeader =>
+      _authToken != null ? {"Authorization": "Bearer $_authToken"} : {};
 
   dynamic _decodeOrThrow(http.Response response) {
     final body = jsonDecode(response.body);
@@ -38,9 +47,13 @@ class ApiService {
     return body;
   }
 
-  Future<StudentProfile> lookupByRollNumber(String rollNumber) async {
+  Future<StudentProfile> login(String rollNumber, String password) async {
     final client = await _client();
-    final response = await client.get(_uri("/api/students/lookup", {"roll_number": rollNumber}));
+    final response = await client.post(
+      _uri("/api/students/login"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({"roll_number": rollNumber, "password": password}),
+    );
     return StudentProfile.fromJson(_decodeOrThrow(response) as Map<String, dynamic>);
   }
 
@@ -48,14 +61,14 @@ class ApiService {
     final client = await _client();
     await client.post(
       _uri("/api/students/$studentId/fcm-token"),
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", ..._authHeader},
       body: jsonEncode({"token": token}),
     );
   }
 
   Future<List<AttendanceHistoryEntry>> getAttendanceHistory(String studentId) async {
     final client = await _client();
-    final response = await client.get(_uri("/api/students/$studentId/attendance"));
+    final response = await client.get(_uri("/api/students/$studentId/attendance"), headers: _authHeader);
     final data = _decodeOrThrow(response) as List;
     return data.map((e) => AttendanceHistoryEntry.fromJson(e as Map<String, dynamic>)).toList();
   }
@@ -65,13 +78,15 @@ class ApiService {
     required String fullName,
     required String rollNumber,
     required String className,
+    required String password,
     required Map<String, File> poses,
   }) async {
     final client = await _client();
     final request = http.MultipartRequest("POST", _uri("/api/students/register"))
       ..fields["full_name"] = fullName
       ..fields["roll_number"] = rollNumber
-      ..fields["class_name"] = className;
+      ..fields["class_name"] = className
+      ..fields["password"] = password;
 
     for (final entry in poses.entries) {
       request.files.add(await http.MultipartFile.fromPath("photo_${entry.key}", entry.value.path));

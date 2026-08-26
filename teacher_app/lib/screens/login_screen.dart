@@ -51,6 +51,8 @@ class _LoginScreenState extends State<LoginScreen> {
       await prefs.setString("teacher_id", account.id);
       await prefs.setString("teacher_name", account.name);
       await prefs.setStringList("teacher_courses", account.courses);
+      await prefs.setString("teacher_token", account.token);
+      ApiService.setAuthToken(account.token);
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(

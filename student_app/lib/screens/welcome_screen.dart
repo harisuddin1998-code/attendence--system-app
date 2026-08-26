@@ -14,13 +14,15 @@ class WelcomeScreen extends StatefulWidget {
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
   final _rollController = TextEditingController();
+  final _passwordController = TextEditingController();
   final _apiService = ApiService();
   bool _isLoading = false;
   String? _errorText;
 
-  Future<void> _lookup() async {
+  Future<void> _login() async {
     final rollNumber = _rollController.text.trim();
-    if (rollNumber.isEmpty) return;
+    final password = _passwordController.text;
+    if (rollNumber.isEmpty || password.isEmpty) return;
 
     setState(() {
       _isLoading = true;
@@ -28,9 +30,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     });
 
     try {
-      final student = await _apiService.lookupByRollNumber(rollNumber);
+      final student = await _apiService.login(rollNumber, password);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("student_id", student.id);
+      await prefs.setString("student_token", student.token);
+      ApiService.setAuthToken(student.token);
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => DashboardScreen(studentId: student.id)));
@@ -52,11 +56,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               const SizedBox(height: 40),
               Text("My Attendance", style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 8),
-              const Text("Already registered your face? Enter your roll number to view your attendance."),
+              const Text("Already registered your face? Log in with your roll number and password to view your attendance."),
               const SizedBox(height: 20),
               TextField(
                 controller: _rollController,
                 decoration: const InputDecoration(labelText: "Roll / ID number", border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: "Password", border: OutlineInputBorder()),
               ),
               if (_errorText != null)
                 Padding(
@@ -65,7 +75,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 ),
               const SizedBox(height: 12),
               FilledButton(
-                onPressed: _isLoading ? null : _lookup,
+                onPressed: _isLoading ? null : _login,
                 child: _isLoading
                     ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Text("View my attendance"),

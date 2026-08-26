@@ -19,6 +19,7 @@ create table if not exists students (
     class_name text not null,
     photo_url text,
     fcm_token text,
+    password_hash text,
     created_at timestamptz not null default now()
 );
 

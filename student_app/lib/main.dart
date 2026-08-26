@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/welcome_screen.dart';
+import 'services/api_service.dart';
 import 'services/notification_service.dart';
 
 // Must be a top-level function - FCM calls this in a separate isolate when a message arrives
@@ -51,6 +52,7 @@ class _StartupGate extends StatefulWidget {
 
 class _StartupGateState extends State<_StartupGate> {
   bool _loading = true;
+  bool _hasToken = false;
   String? _studentId;
 
   @override
@@ -61,8 +63,11 @@ class _StartupGateState extends State<_StartupGate> {
 
   Future<void> _loadSession() async {
     final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("student_token");
+    if (token != null) ApiService.setAuthToken(token);
     setState(() {
       _studentId = prefs.getString("student_id");
+      _hasToken = token != null;
       _loading = false;
     });
   }
@@ -72,7 +77,9 @@ class _StartupGateState extends State<_StartupGate> {
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    if (_studentId != null) {
+    // A session saved before login started issuing tokens has no token to restore - treat it as
+    // logged out rather than letting it call authenticated endpoints with nothing to send.
+    if (_studentId != null && _hasToken) {
       return DashboardScreen(studentId: _studentId!);
     }
     return const WelcomeScreen();

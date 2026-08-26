@@ -26,6 +26,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nameController = TextEditingController();
   final _rollController = TextEditingController();
   final _classController = TextEditingController();
+  final _passwordController = TextEditingController();
   final _picker = ImagePicker();
   final _apiService = ApiService();
 
@@ -56,11 +57,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
         fullName: _nameController.text.trim(),
         rollNumber: _rollController.text.trim(),
         className: _classController.text.trim(),
+        password: _passwordController.text,
         poses: _poses,
       );
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("student_id", student.id);
+      await prefs.setString("student_token", student.token);
+      ApiService.setAuthToken(student.token);
 
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
@@ -125,6 +129,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   controller: _classController,
                   decoration: const InputDecoration(labelText: "Class name", hintText: "e.g. BSCS-5A", border: OutlineInputBorder()),
                   validator: (v) => (v == null || v.trim().isEmpty) ? "Required" : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: "Password",
+                    hintText: "Used to log in and view your attendance later",
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v == null || v.length < 4) ? "At least 4 characters" : null,
                 ),
                 const SizedBox(height: 20),
                 const Text(

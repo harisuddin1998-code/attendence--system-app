@@ -4,6 +4,13 @@ const statusMsg = document.getElementById("status-msg");
 const notifStatus = document.getElementById("notif-status");
 const historyList = document.getElementById("history-list");
 
+// Set after login - /attendance and /fcm-token both require it now, since a roll number alone
+// used to be enough to read anyone's attendance history.
+let authToken = null;
+function authHeaders(extra = {}) {
+  return authToken ? { ...extra, Authorization: `Bearer ${authToken}` } : extra;
+}
+
 function setStatus(message, isError = false) {
   statusMsg.textContent = message;
   statusMsg.className = "status " + (isError ? "error" : "success");
@@ -29,7 +36,7 @@ async function registerForPush(studentId) {
     if (token) {
       await fetch(`/api/students/${studentId}/fcm-token`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ token }),
       });
       notifStatus.textContent = "Push notifications enabled.";
@@ -49,7 +56,7 @@ async function registerForPush(studentId) {
 }
 
 async function loadHistory(studentId) {
-  const response = await fetch(`/api/students/${studentId}/attendance`);
+  const response = await fetch(`/api/students/${studentId}/attendance`, { headers: authHeaders() });
   const records = await response.json();
 
   historyList.innerHTML = "";
@@ -74,19 +81,26 @@ async function loadHistory(studentId) {
 
 lookupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const rollNumber = new FormData(lookupForm).get("roll_number");
-  setStatus("Looking up...");
+  const formData = new FormData(lookupForm);
+  const rollNumber = formData.get("roll_number");
+  const password = formData.get("password");
+  setStatus("Logging in...");
 
   try {
-    const response = await fetch(`/api/students/lookup?roll_number=${encodeURIComponent(rollNumber)}`);
+    const response = await fetch("/api/students/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roll_number: rollNumber, password }),
+    });
     const student = await response.json();
 
     if (!response.ok) {
-      setStatus(student.error || "Student not found.", true);
+      setStatus(student.error || "Invalid roll number or password.", true);
       profileEl.classList.add("hidden");
       return;
     }
 
+    authToken = student.token;
     document.getElementById("profile-photo").src = student.photo_url || "";
     document.getElementById("profile-name").textContent = student.full_name;
     document.getElementById("profile-class").textContent = student.class_name;

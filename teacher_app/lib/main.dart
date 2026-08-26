@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'services/api_service.dart';
 
 void main() {
   runApp(const AttendanceTeacherApp());
@@ -36,6 +37,7 @@ class _StartupGate extends StatefulWidget {
 
 class _StartupGateState extends State<_StartupGate> {
   bool _loading = true;
+  bool _hasToken = false;
   String? _teacherId;
   String? _teacherName;
   List<String> _courses = [];
@@ -48,10 +50,13 @@ class _StartupGateState extends State<_StartupGate> {
 
   Future<void> _loadSession() async {
     final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("teacher_token");
+    if (token != null) ApiService.setAuthToken(token);
     setState(() {
       _teacherId = prefs.getString("teacher_id");
       _teacherName = prefs.getString("teacher_name");
       _courses = prefs.getStringList("teacher_courses") ?? [];
+      _hasToken = token != null;
       _loading = false;
     });
   }
@@ -61,7 +66,9 @@ class _StartupGateState extends State<_StartupGate> {
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    if (_teacherId != null && _teacherName != null) {
+    // A session saved before login started issuing tokens has no token to restore - treat it as
+    // logged out rather than letting it call authenticated endpoints with nothing to send.
+    if (_teacherId != null && _teacherName != null && _hasToken) {
       return HomeScreen(teacherId: _teacherId!, teacherName: _teacherName!, courses: _courses);
     }
     return const LoginScreen();
