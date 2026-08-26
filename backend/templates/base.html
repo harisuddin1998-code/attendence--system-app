@@ -15,13 +15,15 @@
     <nav>
       <a href="{{ url_for('dashboard_page') }}">My Attendance</a>
       <a href="{{ url_for('downloads_page') }}">Download Apps</a>
+      <a href="{{ url_for('about_page') }}">About Us</a>
     </nav>
   </header>
   <main class="{% block main_class %}container{% endblock %}">
     {% block content %}{% endblock %}
   </main>
   <footer class="site-footer">
-    &copy; 2026 Monitor — AI-powered attendance for schools &amp; universities. Built at Iqra University, North Campus.
+    &copy; 2026 Monitor — AI-powered attendance for schools &amp; universities. Built at Iqra University,
+    North Campus, by Shaikh Haris Uddin.
   </footer>
   {% block scripts %}{% endblock %}
 </body>

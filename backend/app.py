@@ -49,6 +49,11 @@ def dashboard_page():
     return render_template("dashboard.html")
 
 
+@app.get("/about")
+def about_page():
+    return render_template("about.html")
+
+
 @app.get("/downloads")
 def downloads_page():
     downloads_dir = os.path.join(app.static_folder, "downloads")
