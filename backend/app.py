@@ -36,6 +36,34 @@ limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour"])
 # them across a thread pool turns that into a handful of concurrent calls.
 MAX_WORKERS = 8
 
+# Load student face encodings into cache at startup so every attendance request uses the in-memory
+# dict instead of hitting Supabase on every request.
+refresh_known_students()
+
+# Cache for student face encodings loaded from Supabase.
+# Structure: {student_id: {"encoding": [...], "full_name": ..., "roll_number": ..., "fcm_token": ...}}
+# Loaded once at startup and refreshed when students are registered.
+known_students_cache: dict = {}
+
+def refresh_known_students():
+    """Load all student face encodings from Supabase into the cache."""
+    global known_students_cache
+    supabase = get_supabase()
+    result = supabase.table("student_face_encodings").select(
+        "student_id, face_encoding, students!inner(id, full_name, roll_number, fcm_token, class_name)"
+    ).execute()
+    cache = {}
+    for row in result.data:
+        student_id = row["student_id"]
+        cache[student_id] = {
+            "encoding": row["face_encoding"],
+            "full_name": row["students"]["full_name"],
+            "roll_number": row["students"]["roll_number"],
+            "fcm_token": row["students"]["fcm_token"],
+    }
+    known_students_cache = cache
+    logger.info(f"Loaded {len(cache)} student face encodings into cache")
+
 
 def error_response(message: str, status: int = 400):
     return jsonify({"error": message}), status
@@ -170,6 +198,7 @@ def register_student():
     for pose_label, _photo_bytes, encoding in encoded_poses:
         encoding_rows.append({"student_id": student["id"], "pose_label": pose_label, "face_encoding": encoding})
     supabase.table("student_face_encodings").insert(encoding_rows).execute()
+    refresh_known_students()
 
     return jsonify(
         {
@@ -344,27 +373,10 @@ def mark_attendance():
     left_bytes = left_image.read()
     right_bytes = right_image.read()
 
-    supabase = get_supabase()
-
-    # One row per registered pose photo - a student with 4 poses appears 4 times here, each with a
-    # different face_encoding, so a face can match whichever of their angles is closest.
-    encodings_result = (
-        supabase.table("student_face_encodings")
-        .select("student_id, face_encoding, students!inner(id, full_name, roll_number, fcm_token, class_name)")
-        .eq("students.class_name", class_name)
-        .execute()
-    )
-    known_students = [
-        {
-            "id": row["students"]["id"],
-            "full_name": row["students"]["full_name"],
-            "roll_number": row["students"]["roll_number"],
-            "fcm_token": row["students"]["fcm_token"],
-            "face_encoding": row["face_encoding"],
-        }
-        for row in encodings_result.data
-    ]
-    total_registered_students = len({s["id"] for s in known_students})
+    # Use cached student encodings instead of querying Supabase on every request.
+    # The cache is loaded at startup and refreshed when students are registered.
+    known_students = list(known_students_cache.values())
+    total_registered_students = len(known_students_cache)
 
     session_result = (
         supabase.table("attendance_sessions")

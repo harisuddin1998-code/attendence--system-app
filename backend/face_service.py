@@ -16,7 +16,9 @@ from config import FACE_MATCH_THRESHOLD
 # wide photos - on Render's free-tier CPU that's slow enough to blow past the request timeout and
 # return a blank response. Capping the longest side keeps detection fast without hurting accuracy at
 # normal classroom-photo distances.
-MAX_IMAGE_DIMENSION = 1600
+# Reduced from 1600 to 800 for classroom photos - faces remain recognizable at this size
+# while halving the pixel count significantly speeds up dlib HOG detection.
+MAX_IMAGE_DIMENSION = 800
 
 
 class NoFaceFoundError(Exception):
@@ -56,7 +58,9 @@ def process_image(image_bytes: bytes) -> ProcessedImage:
         image.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.LANCZOS)
 
     buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=85)
+    # Quality 70 balances fast processing with enough detail for face recognition;
+    # lower quality means smaller arrays for dlib/HOG to process.
+    image.save(buffer, format="JPEG", quality=70)
     return ProcessedImage(rgb_array=np.array(image), downscaled_jpeg_bytes=buffer.getvalue())
 
 
