@@ -31,19 +31,12 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB, enough for two cla
 
 limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour"])
 
-# Face crop uploads / DB inserts / FCM sends are network round-trips to Supabase - running them one
-# face at a time (as the old code did) meant a 30-face class made 60-90 sequential HTTP calls. Batching
-# them across a thread pool turns that into a handful of concurrent calls.
-MAX_WORKERS = 8
-
-# Load student face encodings into cache at startup so every attendance request uses the in-memory
-# dict instead of hitting Supabase on every request.
-refresh_known_students()
-
 # Cache for student face encodings loaded from Supabase.
 # Structure: {student_id: {"encoding": [...], "full_name": ..., "roll_number": ..., "fcm_token": ...}}
 # Loaded once at startup and refreshed when students are registered.
 known_students_cache: dict = {}
+MAX_WORKERS = 4
+
 
 def refresh_known_students():
     """Load all student face encodings from Supabase into the cache."""
@@ -60,9 +53,14 @@ def refresh_known_students():
             "full_name": row["students"]["full_name"],
             "roll_number": row["students"]["roll_number"],
             "fcm_token": row["students"]["fcm_token"],
-    }
+        }
     known_students_cache = cache
     logger.info(f"Loaded {len(cache)} student face encodings into cache")
+
+
+# Load student face encodings into cache at startup so every attendance request uses the in-memory
+# dict instead of hitting Supabase on every request.
+refresh_known_students()
 
 
 def error_response(message: str, status: int = 400):
@@ -377,6 +375,7 @@ def mark_attendance():
     # The cache is loaded at startup and refreshed when students are registered.
     known_students = list(known_students_cache.values())
     total_registered_students = len(known_students_cache)
+    supabase = get_supabase()
 
     session_result = (
         supabase.table("attendance_sessions")
