@@ -31,31 +31,42 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB, enough for two cla
 
 limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour"])
 
-# Cache for student face encodings loaded from Supabase.
-# Structure: {student_id: {"encoding": [...], "full_name": ..., "roll_number": ..., "fcm_token": ...}}
-# Loaded once at startup and refreshed when students are registered.
-known_students_cache: dict = {}
+# Cache of registered face encodings, grouped by class_name, refreshed at startup and whenever a
+# student registers. Avoids hitting Supabase for the encodings lookup on every attendance-mark call.
+#
+# One entry PER REGISTERED POSE (a student with 4 poses appears 4 times, each with its own
+# face_encoding) - this must stay a list, not a dict keyed by student_id, so matching can compare an
+# incoming face against every stored angle and keep the closest one. Collapsing it to one row per
+# student silently throws away every pose but the last and matching accuracy along with it. Also
+# grouped by class_name so a session for one class never matches against another class's students.
+known_students_by_class: dict[str, list[dict]] = {}
 MAX_WORKERS = 4
 
 
 def refresh_known_students():
-    """Load all student face encodings from Supabase into the cache."""
-    global known_students_cache
+    """Reload every registered face encoding from Supabase into the cache."""
+    global known_students_by_class
     supabase = get_supabase()
-    result = supabase.table("student_face_encodings").select(
-        "student_id, face_encoding, students!inner(id, full_name, roll_number, fcm_token, class_name)"
-    ).execute()
-    cache = {}
+    result = (
+        supabase.table("student_face_encodings")
+        .select("student_id, face_encoding, students!inner(id, full_name, roll_number, fcm_token, class_name)")
+        .execute()
+    )
+    by_class: dict[str, list[dict]] = {}
     for row in result.data:
-        student_id = row["student_id"]
-        cache[student_id] = {
-            "encoding": row["face_encoding"],
-            "full_name": row["students"]["full_name"],
-            "roll_number": row["students"]["roll_number"],
-            "fcm_token": row["students"]["fcm_token"],
-        }
-    known_students_cache = cache
-    logger.info(f"Loaded {len(cache)} student face encodings into cache")
+        s = row["students"]
+        by_class.setdefault(s["class_name"], []).append(
+            {
+                "id": s["id"],
+                "full_name": s["full_name"],
+                "roll_number": s["roll_number"],
+                "fcm_token": s["fcm_token"],
+                "face_encoding": row["face_encoding"],
+            }
+        )
+    known_students_by_class = by_class
+    total_students = sum(len({e["id"] for e in rows}) for rows in by_class.values())
+    logger.info(f"Refreshed face-encoding cache: {total_students} students across {len(by_class)} classes")
 
 
 # Load student face encodings into cache at startup so every attendance request uses the in-memory
@@ -371,25 +382,27 @@ def mark_attendance():
     left_bytes = left_image.read()
     right_bytes = right_image.read()
 
-    # Use cached student encodings instead of querying Supabase on every request.
-    # The cache is loaded at startup and refreshed when students are registered.
-    known_students = list(known_students_cache.values())
-    total_registered_students = len(known_students_cache)
+    # Cached instead of querying Supabase for encodings on every request - filtered to this class
+    # only, so a face can't accidentally match a student from a different class.
+    known_students = known_students_by_class.get(class_name, [])
+    total_registered_students = len({s["id"] for s in known_students})
     supabase = get_supabase()
 
-    session_result = (
-        supabase.table("attendance_sessions")
-        .insert({"teacher_id": teacher_id or None, "class_name": class_name})
-        .execute()
-    )
-    session = session_result.data[0]
-    session_id = session["id"]
+    # The session insert doesn't depend on the photos at all, so it runs alongside decoding them
+    # instead of blocking in front of that work.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        session_future = pool.submit(
+            lambda: supabase.table("attendance_sessions")
+            .insert({"teacher_id": teacher_id or None, "class_name": class_name})
+            .execute()
+        )
+        left_processed_future = pool.submit(process_image, left_bytes)
+        right_processed_future = pool.submit(process_image, right_bytes)
 
-    # Decode + downscale both photos once (in parallel) - the resulting array feeds face detection
-    # and the re-encoded JPEG is what gets uploaded, instead of paying for a second decode and
-    # uploading the original multi-MB phone photo.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        left_processed, right_processed = pool.map(process_image, [left_bytes, right_bytes])
+        session = session_future.result().data[0]
+        session_id = session["id"]
+        left_processed = left_processed_future.result()
+        right_processed = right_processed_future.result()
 
     # Uploads are pure network waiting, cheap to run concurrently. Face detection (dlib/HOG) is the
     # actually memory-heavy step - running it on both photos at once nearly doubled peak memory and

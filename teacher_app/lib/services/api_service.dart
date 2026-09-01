@@ -65,11 +65,26 @@ class ApiService {
       _authToken != null ? {"Authorization": "Bearer $_authToken"} : {};
 
   Map<String, dynamic> _decodeOrThrow(http.Response response) {
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    if (response.statusCode >= 400) {
-      throw ApiException(body["error"]?.toString() ?? "Something went wrong.");
+    final raw = response.body.trim();
+    if (raw.isEmpty) {
+      throw ApiException("Server returned an empty response.");
     }
-    return body;
+    if (raw.startsWith("<")) {
+      throw ApiException("Backend returned HTML instead of JSON. Check the server logs.");
+    }
+
+    try {
+      final body = jsonDecode(raw);
+      if (body is! Map<String, dynamic>) {
+        throw ApiException("Unexpected server response format.");
+      }
+      if (response.statusCode >= 400) {
+        throw ApiException(body["error"]?.toString() ?? "Something went wrong.");
+      }
+      return body;
+    } on FormatException {
+      throw ApiException("Invalid server response. Please try again.");
+    }
   }
 
   Future<TeacherAccount> login(String email, String password) async {
