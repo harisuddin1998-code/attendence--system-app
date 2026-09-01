@@ -1,4 +1,5 @@
 import concurrent.futures
+import gc
 import logging
 import os
 from datetime import datetime, timezone
@@ -388,33 +389,38 @@ def mark_attendance():
     total_registered_students = len({s["id"] for s in known_students})
     supabase = get_supabase()
 
-    # The session insert doesn't depend on the photos at all, so it runs alongside decoding them
-    # instead of blocking in front of that work.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+    # The session insert doesn't depend on the photos, so it runs alongside decoding+detecting them.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         session_future = pool.submit(
             lambda: supabase.table("attendance_sessions")
             .insert({"teacher_id": teacher_id or None, "class_name": class_name})
             .execute()
         )
-        left_processed_future = pool.submit(process_image, left_bytes)
-        right_processed_future = pool.submit(process_image, right_bytes)
+
+        # Fully sequential, one photo at a time: decode, detect, grab what's needed, then drop the
+        # decoded pixel array before touching the next photo. Render's free tier only has 512MB -
+        # holding two decoded classroom photos (plus dlib's own detection buffers) in memory at once
+        # was enough to get the worker OOM-killed mid-request. Only the small re-encoded JPEG bytes
+        # and the (much smaller) face crops need to survive past this point.
+        left_processed = process_image(left_bytes)
+        left_faces = detect_faces_in_array(left_processed.rgb_array)
+        left_downscaled_bytes = left_processed.downscaled_jpeg_bytes
+        del left_processed
+        gc.collect()
+
+        right_processed = process_image(right_bytes)
+        right_faces = detect_faces_in_array(right_processed.rgb_array)
+        right_downscaled_bytes = right_processed.downscaled_jpeg_bytes
+        del right_processed
+        gc.collect()
 
         session = session_future.result().data[0]
         session_id = session["id"]
-        left_processed = left_processed_future.result()
-        right_processed = right_processed_future.result()
 
-    # Uploads are pure network waiting, cheap to run concurrently. Face detection (dlib/HOG) is the
-    # actually memory-heavy step - running it on both photos at once nearly doubled peak memory and
-    # was tipping Render's free-tier 512MB instance into OOM restarts. Keep detection sequential; the
-    # uploads below still overlap with it on their own threads either way.
+    # Only network waiting from here on - safe to run concurrently.
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        left_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, left_processed.downscaled_jpeg_bytes)
-        right_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, right_processed.downscaled_jpeg_bytes)
-
-        left_faces = detect_faces_in_array(left_processed.rgb_array)
-        right_faces = detect_faces_in_array(right_processed.rgb_array)
-
+        left_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, left_downscaled_bytes)
+        right_url_future = pool.submit(upload_image, config.BUCKET_ATTENDANCE_IMAGES, right_downscaled_bytes)
         left_url = left_url_future.result()
         right_url = right_url_future.result()
 

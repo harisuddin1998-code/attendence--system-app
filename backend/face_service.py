@@ -12,13 +12,11 @@ from PIL import Image, ImageOps
 
 from config import FACE_MATCH_THRESHOLD
 
-# HOG face detection time scales with image area, and phone cameras routinely produce 3000-4000px
-# wide photos - on Render's free-tier CPU that's slow enough to blow past the request timeout and
-# return a blank response. Capping the longest side keeps detection fast without hurting accuracy at
-# normal classroom-photo distances.
-# Reduced from 1600 to 800 for classroom photos - faces remain recognizable at this size
-# while halving the pixel count significantly speeds up dlib HOG detection.
-MAX_IMAGE_DIMENSION = 800
+# HOG face detection time AND memory scale with image area, and phone cameras routinely produce
+# 3000-4000px wide photos - on Render's free-tier 512MB instance that's enough to both blow past the
+# request timeout and get OOM-killed mid-request. Capping the longest side keeps both in check
+# without hurting accuracy at normal classroom-photo distances.
+MAX_IMAGE_DIMENSION = 640
 
 
 class NoFaceFoundError(Exception):
@@ -69,7 +67,10 @@ def _load_rgb_image(image_bytes: bytes) -> np.ndarray:
 
 
 def encode_single_face_from_array(rgb_image: np.ndarray) -> list:
-    locations = face_recognition.face_locations(rgb_image, model="hog")
+    # number_of_times_to_upsample=0 skips building the larger image pyramid dlib normally uses to
+    # find small/far-away faces - a registration photo is a single close-up face, so it's not needed
+    # here, and skipping it noticeably cuts both memory and processing time.
+    locations = face_recognition.face_locations(rgb_image, model="hog", number_of_times_to_upsample=0)
 
     if len(locations) == 0:
         raise NoFaceFoundError("No face detected in the registration photo. Please retake it with good lighting.")
@@ -103,7 +104,10 @@ def _crop_face_jpeg(rgb_image: np.ndarray, location: tuple, padding_ratio: float
 
 
 def detect_faces_in_array(rgb_image: np.ndarray) -> list[DetectedFace]:
-    locations = face_recognition.face_locations(rgb_image, model="hog")
+    # Same reasoning as encode_single_face_from_array - no upsampling pyramid, which is the biggest
+    # single lever for keeping this under Render's free-tier 512MB ceiling. Faces at normal
+    # classroom-photo distance are still well within range at MAX_IMAGE_DIMENSION.
+    locations = face_recognition.face_locations(rgb_image, model="hog", number_of_times_to_upsample=0)
     encodings = face_recognition.face_encodings(rgb_image, known_face_locations=locations)
 
     faces = []
