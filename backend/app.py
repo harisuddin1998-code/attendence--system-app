@@ -389,33 +389,33 @@ def mark_attendance():
     total_registered_students = len({s["id"] for s in known_students})
     supabase = get_supabase()
 
-    # The session insert doesn't depend on the photos, so it runs alongside decoding+detecting them.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        session_future = pool.submit(
-            lambda: supabase.table("attendance_sessions")
-            .insert({"teacher_id": teacher_id or None, "class_name": class_name})
-            .execute()
-        )
+    session = (
+        supabase.table("attendance_sessions")
+        .insert({"teacher_id": teacher_id or None, "class_name": class_name})
+        .execute()
+        .data[0]
+    )
+    session_id = session["id"]
 
-        # Fully sequential, one photo at a time: decode, detect, grab what's needed, then drop the
-        # decoded pixel array before touching the next photo. Render's free tier only has 512MB -
-        # holding two decoded classroom photos (plus dlib's own detection buffers) in memory at once
-        # was enough to get the worker OOM-killed mid-request. Only the small re-encoded JPEG bytes
-        # and the (much smaller) face crops need to survive past this point.
-        left_processed = process_image(left_bytes)
-        left_faces = detect_faces_in_array(left_processed.rgb_array)
-        left_downscaled_bytes = left_processed.downscaled_jpeg_bytes
-        del left_processed
-        gc.collect()
+    # Plain sequential, one photo fully at a time, no threading around the CPU-heavy part - the
+    # previous thread-pool version made debugging "which photo failed" from Render's logs harder
+    # than it needed to be, and the memory-pressure crashes were exactly the kind of thing that
+    # deserves the simplest, most predictable code path. Only network uploads (below) are concurrent.
+    logger.info("mark_attendance: processing left photo")
+    left_processed = process_image(left_bytes)
+    left_faces = detect_faces_in_array(left_processed.rgb_array)
+    left_downscaled_bytes = left_processed.downscaled_jpeg_bytes
+    del left_processed
+    gc.collect()
+    logger.info(f"mark_attendance: left photo done, {len(left_faces)} face(s)")
 
-        right_processed = process_image(right_bytes)
-        right_faces = detect_faces_in_array(right_processed.rgb_array)
-        right_downscaled_bytes = right_processed.downscaled_jpeg_bytes
-        del right_processed
-        gc.collect()
-
-        session = session_future.result().data[0]
-        session_id = session["id"]
+    logger.info("mark_attendance: processing right photo")
+    right_processed = process_image(right_bytes)
+    right_faces = detect_faces_in_array(right_processed.rgb_array)
+    right_downscaled_bytes = right_processed.downscaled_jpeg_bytes
+    del right_processed
+    gc.collect()
+    logger.info(f"mark_attendance: right photo done, {len(right_faces)} face(s)")
 
     # Only network waiting from here on - safe to run concurrently.
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
